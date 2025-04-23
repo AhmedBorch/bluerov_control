@@ -30,6 +30,9 @@ setup(
         'video = autonomous_rov.video:main',
         'pinger_node = autonomous_rov.pinger_node:main',
         'image_processing_tracker = autonomous_rov.image_processing_tracker:main',
+        'hsv_calibrator = autonomous_rov.hsv_calibrator:main',
+        'image_processing_tracker_pablo = autonomous_rov.image_processing_tracker_pablo:main',
+        'object_tracker = autonomous_rov.object_tracker:main',
         ],       
         
     },
