@@ -1,0 +1,19 @@
+<launch>		
+	<group> 
+	<arg name="namespace" default="bluerov2"/>
+
+	<node pkg="autonomous_rov" exec="video" name="video" namespace="$(var namespace)" output="screen">
+	</node>		
+
+	<!-- <node pkg="autonomous_rov" exec="hsv_calibrator" name="hsv_calibrator" namespace="$(var namespace)" output="screen">
+	</node>		
+
+	<node pkg="autonomous_rov" exec="image_processing_tracker_pablo" name="image_processing_node" namespace="$(var namespace)" output="screen">
+	</node>	 -->
+
+	<node pkg="autonomous_rov" exec="object_tracker" name="object_tracker" namespace="$(var namespace)" output="screen">
+	</node>	
+		
+	</group>
+</launch>	
+
