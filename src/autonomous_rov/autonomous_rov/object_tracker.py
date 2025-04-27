@@ -19,8 +19,8 @@ class ObjectTracker(Node):
         
         # Initialize publishers
         self.hsv_pub = self.create_publisher(Int32MultiArray, 'hsv_values', 10)
-        self.center_pub = self.create_publisher(Point, 'object_center', 10)
-        self.size_pub = self.create_publisher(Int32MultiArray, 'object_size', 10)
+        # self.center_pub = self.create_publisher(Point, 'object_center', 10)
+        # self.object_width = self.create_publisher(Float64MultiArray, 'object_width', 10)
         self.pub_tracked_point = self.create_publisher(Float64MultiArray, 'tracked_point', 10)
         
         # Subscribe to camera feed
@@ -92,6 +92,7 @@ class ObjectTracker(Node):
             largest = max(contours, key=cv2.contourArea)
             if cv2.contourArea(largest) > 100:  # Minimum area threshold
                 M = cv2.moments(largest)
+                tracking_data_msg = Float64MultiArray()
                 if M["m00"] != 0:
                     cX = int(M["m10"] / M["m00"])
                     cY = int(M["m01"] / M["m00"])
@@ -102,9 +103,14 @@ class ObjectTracker(Node):
                     center_msg.y = float(cY)
                     center_msg.z = 0.0  # For 2D tracking
                     center_meter = cam.convertOnePoint2meter((cX, cY))
-                    center_meter_msg = Float64MultiArray(data = center_meter)
-                    self.center_pub.publish(center_msg)
-                    self.pub_tracked_point.publish(center_meter_msg)
+                    # center_meter_msg = Float64MultiArray(data = center_meter)
+                    tracking_data_msg.data = [
+                        center_meter[0],
+                        center_meter[1],
+                        0.0,  # Placeholder for width
+                    ]
+                    # self.center_pub.publish(center_msg)
+                    # self.pub_tracked_point.publish(center_meter_msg)
                     
                     # Visual feedback
                     cv2.circle(display_frame, (cX, cY), 7, (0, 255, 0), -1)
@@ -119,12 +125,13 @@ class ObjectTracker(Node):
                 cY = int(M["m01"] / M["m00"])
                 
                 # Calculate diagonal (Pythagorean theorem)
-                diagonal = int(np.sqrt(w**2 + h**2))  # Convert to integer pixels
+                # diagonal = int(np.sqrt(w**2 + h**2))  # Convert to integer pixels
                 
                 # Publish diagonal only
-                size_msg = Int32MultiArray()
-                size_msg.data = [diagonal]  # Single value array
-                self.size_pub.publish(size_msg)
+                # width_msg = Float64MultiArray(data = w)
+                tracking_data_msg.data[2] = cam.convertWidth2meter(w)
+                self.pub_tracked_point.publish(tracking_data_msg)
+                # self.object_width.publish(width_msg)
                 
                 # Draw bounding box (optional)
                 cv2.rectangle(display_frame, (x, y), (x+w, y+h), (0, 255, 0), 2)

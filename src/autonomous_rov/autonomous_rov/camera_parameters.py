@@ -19,6 +19,10 @@ def convertOnePoint2meter(pt):
     global u0,v0,lx, ly
     return (float(pt[0])-u0)/lx, (float(pt[1])-v0)/ly
 
+def convertWidth2meter(width_px):
+    global lx
+    return width_px / lx
+
 # convert a list of pixels coordinates to meters using defaut calibration parameters
 def convertListPoint2meter (points):
     global u0,v0,lx, ly

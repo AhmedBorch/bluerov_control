@@ -36,6 +36,7 @@ class MyPythonNode(Node):
         self.pub_angular_velocity = self.create_publisher(Twist, 'angular_velocity', 10)
         self.pub_linear_velocity = self.create_publisher(Twist, 'linear_velocity', 10)
         self.publisher_current_yaw = self.create_publisher(Float64, 'current_yaw', 10)
+        self.publisher_current_surge = self.create_publisher(Float64, 'current_surge', 10)
         self.get_logger().info("Publishers created.")
 
         self.get_logger().info("ask router to create endpoint to enable mavlink/from publication.")
@@ -97,13 +98,15 @@ class MyPythonNode(Node):
         # corrections for control
         self.Correction_yaw = 1500
         self.Correction_depth = 1500
+        self.Correction_surge = 1500
         
         ## TODO ##
         # Task 1 : Calculate the flotability of the ROV
         self.flotability = 0.0
 
         #### visual survoing
-        self.x_desired_value = 0.0
+        self.x_value = 0.0
+        self.width_value = 0.2
         
     def initialization_test(self):
         """Tests the light by flashing it and tests the camera servo by moving it to max/min limits before starting the sytsem."""
@@ -177,7 +180,7 @@ class MyPythonNode(Node):
             return
         elif self.set_mode[2]:
             # send commands in correction mode
-            self.setOverrideRCIN(1500, 1500, self.Correction_depth, self.Correction_yaw, 1500, 1500)
+            self.setOverrideRCIN(1500, 1500, self.Correction_depth, self.Correction_yaw, self.Correction_surge, 1500)
         else:  # normally, never reached
             pass
 
@@ -462,24 +465,23 @@ class MyPythonNode(Node):
 
         # Send PWM commands to motors
         # yaw command to be adapted using sensor feedback
-        Kp = 0.5
-        yaw_val = self.x_desired_value*Kp 
-        if yaw_val < 0:
-            pwm_yaw = 1464 + 12.3 * yaw_val / 4 
-        else:
-            pwm_yaw = 1536 + 9.6 * yaw_val / 4
-
-        if yaw_val <0.01 and yaw_val > -0.01:
-            pwm_yaw = 1500
+        # Kp = 0.5
+        # yaw_val = self.x_value*Kp 
+        # if yaw_val < -0.03:
+        #     pwm_yaw = 1464 + 12.3 * yaw_val / 4 
+        # elif yaw_val > 0.03:
+        #     pwm_yaw = 1536 + 9.6 * yaw_val / 4
+        # else:
+        #     pwm_yaw = 1500
 
         
-        self.Correction_yaw = int(pwm_yaw)
-        # self.Correction_yaw
-        # self.Correction_yaw = 1500
-        #publish data
-        msg = Float64()
-        msg.data = yaw_val
-        self.publisher_current_yaw.publish(msg)
+        # self.Correction_yaw = int(pwm_yaw)
+        # # self.Correction_yaw
+        # # self.Correction_yaw = 1500
+        # #publish data
+        # msg = Float64()
+        # msg.data = yaw_val
+        # self.publisher_current_yaw.publish(msg)
     
     def AlfaBetaFilter(self,zvalue):
         #alfa and beta from instructions
@@ -554,9 +556,59 @@ class MyPythonNode(Node):
 
     # self.get_logger().info("pinger_distance =" + str(self.pinger_distance))
 
-    def center_callback(self, msg):
+    def visual_servoing_callback(self, msg):
+        desired_width = 0.2 # desire width on camera in meters
+        # desired x is 0 
+
         if len(msg.data) > 0:
-            self.x_desired_value = msg.data[0]
+            self.x_value = msg.data[0]
+            self.width_value = msg.data[2]
+        else:
+            self.x_value = 0.0 ################################ to test, if no value is provided don't change yaw
+            self.width_value = 0.2
+
+        Kp_yaw = 0.5
+        Kp_surge = 0.4
+        yaw_val = self.x_value*Kp_yaw 
+        width_error = self.width_value - desired_width
+        surge_val = width_error * Kp_surge
+        yaw_threshold_error = 0.05
+        if yaw_val > yaw_threshold_error:
+            # first only control the yaw until the object is centered
+            if yaw_val < -0.02:
+                pwm_yaw = 1464 + 12.3 * yaw_val / 4 
+            elif yaw_val > 0.02:
+                pwm_yaw = 1536 + 9.6 * yaw_val / 4
+            else:
+                pwm_yaw = 1500
+            pwm_surge = 1500
+        else:
+            # the object is almost centered, control the surge
+            if width_error > 0.02:
+                pwm_surge = 1464 + 12.3 * surge_val / 4 
+            elif width_error < -0.02:
+                pwm_surge = 1536 + 9.6 * surge_val / 4
+            else:
+                pwm_surge = 1500
+            pwm_yaw = 1500   
+
+        # clip for range 'check'
+        pwm_yaw = np.clip(pwm_yaw, 1100, 1900)
+        pwm_surge = np.clip(pwm_surge, 1100, 1900)
+
+        yaw_msg = Float64()
+        yaw_msg.data = yaw_val
+        self.publisher_current_yaw.publish(yaw_msg)
+
+        surge_msg = Float64()
+        surge_msg.data = surge_val
+        self.publisher_current_surge.publish(surge_msg)
+
+        self.Correction_yaw = int(pwm_yaw)
+        self.Correction_surge = int(pwm_surge)
+
+        self.get_logger().info(f"velocity yaw = {yaw_val}, velocity surge = {surge_val}")
+        
 
 
     def subscriber(self):
@@ -573,7 +625,7 @@ class MyPythonNode(Node):
         self.subimu = self.create_subscription(Imu, "imu/data", self.OdoCallback, qos_profile=qos_profile)
         self.subimu  # prevent unused variable warning
         # subscriber for camera visual survoing ##############################
-        self.camdata = self.create_subscription(Float64MultiArray,'tracked_point',self.center_callback, qos_profile=qos_profile)
+        self.camdata = self.create_subscription(Float64MultiArray,'tracked_point',self.visual_servoing_callback, qos_profile=qos_profile)
         self.camdata
         ##############################################################
         self.subrel_alt = self.create_subscription(Float64, "global_position/rel_alt", self.RelAltCallback,
