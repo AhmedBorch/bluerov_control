@@ -36,8 +36,8 @@ class ObjectTracker(Node):
         cv2.namedWindow("Tracking View")
 
         # Set your initial HSV values
-        self.initial_lower = [0, 100, 50]    # H, S, V
-        self.initial_upper = [15, 255, 255]   # H, S, V
+        self.initial_lower = [0, 95, 135]    # H, S, V
+        self.initial_upper = [16, 255, 255]   # H, S, V
         
         # Create HSV sliders
         cv2.createTrackbar("Lower H", "Color Tuner", self.initial_lower[0], 179, lambda x: None)
@@ -84,7 +84,7 @@ class ObjectTracker(Node):
         
         # Create mask and find contours
         mask = cv2.inRange(hsv, lower, upper)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((5,5), np.uint8))
+        # mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((5,5), np.uint8))
         
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
@@ -108,6 +108,7 @@ class ObjectTracker(Node):
                         center_meter[0],
                         center_meter[1],
                         0.0,  # Placeholder for width
+                        0.0,   # Placeholder for width difference
                     ]
                     # self.center_pub.publish(center_msg)
                     # self.pub_tracked_point.publish(center_meter_msg)
@@ -130,6 +131,8 @@ class ObjectTracker(Node):
                 # Publish diagonal only
                 # width_msg = Float64MultiArray(data = w)
                 tracking_data_msg.data[2] = cam.convertWidth2meter(w)
+                desired_width = 0.5  # Desired width in meters
+                tracking_data_msg.data[3] = tracking_data_msg.data[2] - desired_width
                 self.pub_tracked_point.publish(tracking_data_msg)
                 # self.object_width.publish(width_msg)
                 

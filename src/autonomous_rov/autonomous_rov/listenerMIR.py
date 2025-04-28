@@ -106,7 +106,9 @@ class MyPythonNode(Node):
 
         #### visual survoing
         self.x_value = 0.0
-        self.width_value = 0.2
+        self.width_value = 0.5
+        self.Kd_flag = True
+        self.error_d = np.array([0.0,0.0])
         
     def initialization_test(self):
         """Tests the light by flashing it and tests the camera servo by moving it to max/min limits before starting the sytsem."""
@@ -536,7 +538,8 @@ class MyPythonNode(Node):
         pwm_z = np.clip(pwm_z,1100,1900)
         # update Correction_depth
         Correction_depth = pwm_z
-        self.Correction_depth = int(Correction_depth)
+        # self.Correction_depth = int(Correction_depth)
+        self.Correction_depth = 1500
         # Send PWM commands to motors in timer
 
     # def DvlCallback(self, data):
@@ -557,7 +560,7 @@ class MyPythonNode(Node):
     # self.get_logger().info("pinger_distance =" + str(self.pinger_distance))
 
     def visual_servoing_callback(self, msg):
-        desired_width = 0.2 # desire width on camera in meters
+        desired_width = 0.5 # desire width on camera in meters
         # desired x is 0 
 
         if len(msg.data) > 0:
@@ -565,49 +568,94 @@ class MyPythonNode(Node):
             self.width_value = msg.data[2]
         else:
             self.x_value = 0.0 ################################ to test, if no value is provided don't change yaw
-            self.width_value = 0.2
+            self.width_value = 0.5
 
-        Kp_yaw = 0.5
-        Kp_surge = 0.4
+        Kp_yaw = 0.2
+        Kp_surge = 0.5
+        kd = 0.2
         yaw_val = self.x_value*Kp_yaw 
         width_error = self.width_value - desired_width
         surge_val = width_error * Kp_surge
-        yaw_threshold_error = 0.05
-        if yaw_val > yaw_threshold_error:
+        
+        if (self.Kd_flag == True):
+            self.error_d = np.array([0.0,0.0])
+            self.Kd_flag = False
+        
+        
+        error_x = self.x_value
+        error_size = self.width_value - desired_width
+        error = np.array([error_x, error_size]).reshape((2, 1))  # to get 2x1 for 2dof control
+        error_d_plus = (error - self.error_d)/error
+
+        k_p_Lx = 0.3
+        self.error_d = error
+        # x error = yaw
+        # size error = surge
+        L = np.array([
+            [1, 0],  # прямая зависимость так как двигаемся в
+            [0, -1]  # обратная зависимость так как двигаемся вперед
+        ])
+
+        L_pinv = np.linalg.pinv(L) 
+
+        # v = -k_p_Lx * L_pinv @ error 
+        v = -k_p_Lx * L_pinv @ error + -kd * L_pinv @ error_d_plus
+
+        v_yaw = v[0, 0] # shape of v - take the 1st value
+        v_surge = v[1, 0] # shape of v - take the 2nd value
+
+
+        # if yaw_val > yaw_threshold_error or yaw_val < -yaw_threshold_error:
             # first only control the yaw until the object is centered
-            if yaw_val < -0.02:
-                pwm_yaw = 1464 + 12.3 * yaw_val / 4 
-            elif yaw_val > 0.02:
-                pwm_yaw = 1536 + 9.6 * yaw_val / 4
-            else:
-                pwm_yaw = 1500
-            pwm_surge = 1500
+        # if yaw_val < -0.03:
+        #     pwm_yaw = 1464 + 12.3 * yaw_val / 4 
+        # elif yaw_val > 0.03:
+        #     pwm_yaw = 1536 + 9.6 * yaw_val / 4
+        # else:
+        #     pwm_yaw = 1500
+        #     # pwm_surge = 1500
+        # # else:
+        #     # the object is almost centered, control the surge
+        # if width_error > 0.05:
+        #     pwm_surge = 1464 + 12.3 * surge_val / 4 
+        # elif width_error < -0.05:
+        #     pwm_surge = 1536 + 9.6 * surge_val / 4
+        # else:
+        #     pwm_surge = 1500
+
+            # pwm_yaw = 1500   
+
+        if v_yaw > 0: # rotate first
+            pwm_yaw = 1464 + 12.3 * v_yaw / 4       
+        elif v_yaw < 0:
+            pwm_yaw = 1536 + 9.6 * v_yaw / 4
         else:
-            # the object is almost centered, control the surge
-            if width_error > 0.02:
-                pwm_surge = 1464 + 12.3 * surge_val / 4 
-            elif width_error < -0.02:
-                pwm_surge = 1536 + 9.6 * surge_val / 4
-            else:
-                pwm_surge = 1500
-            pwm_yaw = 1500   
+            pwm_yaw = 1500
+
+        if v_surge > 0:  # then translate 
+            pwm_surge = 1464 + 12.3 * v_surge / 4 
+        elif v_surge < 0: 
+            pwm_surge = 1536 + 9.6 * v_surge / 4
+        else:
+            pwm_surge = 1500
+        
 
         # clip for range 'check'
         pwm_yaw = np.clip(pwm_yaw, 1100, 1900)
         pwm_surge = np.clip(pwm_surge, 1100, 1900)
 
         yaw_msg = Float64()
-        yaw_msg.data = yaw_val
+        yaw_msg.data = float(pwm_yaw)
         self.publisher_current_yaw.publish(yaw_msg)
 
         surge_msg = Float64()
-        surge_msg.data = surge_val
+        surge_msg.data = float(pwm_surge)
         self.publisher_current_surge.publish(surge_msg)
 
         self.Correction_yaw = int(pwm_yaw)
         self.Correction_surge = int(pwm_surge)
 
-        self.get_logger().info(f"velocity yaw = {yaw_val}, velocity surge = {surge_val}")
+        self.get_logger().info(f"yaw error = {yaw_val}, width error = {width_error}")
         
 
 
