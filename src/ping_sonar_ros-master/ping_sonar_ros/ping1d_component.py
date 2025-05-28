@@ -49,13 +49,13 @@ class Ping1dComponent(Node):
     #self.declare_parameter('speed', 1450000)  # 1550000 mm/s 1550 m/s
     self.declare_parameter('speed', 1500000)
     self.speed_:float = self.get_parameter('speed').value
-    self.declare_parameter('interval_num', 66)
+    self.declare_parameter('interval_num', 50)
     self.interval_num_:float = self.get_parameter('interval_num').value
-    self.declare_parameter('gain_num', 0) # int 0 - 6
+    self.declare_parameter('gain_num', 1) # int 0 - 6
     self.gain_num_:int = self.get_parameter('gain_num').value
     self.declare_parameter('scan_start', 0) # default 100 [mm] range(30 to 200)
     self.scan_start_:float = self.get_parameter('scan_start').value
-    self.declare_parameter('scan_length', 5000) # default 2000 [mm] range(2000 to 10000)
+    self.declare_parameter('scan_length', 3578) # default 2000 [mm] range(2000 to 10000)
     self.scan_length_:float = self.get_parameter('scan_length').value
     self.declare_parameter('mode_auto', 1) # default 0: manual mode, 1: auto mode
     self.mode_auto_:int = self.get_parameter('mode_auto').value
@@ -75,13 +75,13 @@ class Ping1dComponent(Node):
     
     test_usb = False
     if (test_usb):
-    	self.port = "/dev/ttyUSB0"
-    	self.baudrate = 115200
-    	self.ping.connect_serial(self.port, self.baudrate)
+      self.port = "/dev/ttyUSB0"
+      self.baudrate = 115200
+      self.ping.connect_serial(self.port, self.baudrate)
     else:
-    	self.host = "192.168.2.2"
-    	self.port = "9090"
-    	self.ping.connect_udp(self.host, int(self.port))
+      self.host = "192.168.2.2"
+      self.port = "9090"
+      self.ping.connect_udp(self.host, int(self.port))
 
 
     if self.ping.initialize() is False:

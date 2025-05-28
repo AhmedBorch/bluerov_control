@@ -13,6 +13,7 @@ from mavros_msgs.srv import CommandLong, SetMode, StreamRate
 from mavros_msgs.msg import OverrideRCIn, Mavlink
 from mavros_msgs.srv import EndpointAdd
 from geometry_msgs.msg import Twist
+import time
 
 
 # from waterlinked_a50_ros_driver.msg import DVL
@@ -36,6 +37,9 @@ class MyPythonNode(Node):
         self.publisher_estimated_heave = self.create_publisher(Twist, 'estimated_heave', 10)
         self.publisher_desired_yaw = self.create_publisher(Float64, 'desired_yaw', 10)
         self.publisher_measured_yaw = self.create_publisher(Float64, 'measured_yaw', 10)
+        #added for pinger
+        self.publisher_detected_obstacle = self.create_publisher(Float64, 'detected_obstacle', 10)
+        
         self.get_logger().info("Publishers created.")
 
         self.get_logger().info("ask router to create endpoint to enable mavlink/from publication.")
@@ -72,6 +76,8 @@ class MyPythonNode(Node):
 
         self.pinger_confidence = 0
         self.pinger_distance = 0
+        self.pinger_callback_counter = 0
+
 
         self.Vmax_mot = 1900
         self.Vmin_mot = 1100
@@ -79,6 +85,7 @@ class MyPythonNode(Node):
         # corrections for control
         self.Correction_yaw = 1500
         self.Correction_depth = 1500
+        self.Correction_surge = 1500
 
         # TODO Task4: Flotability of the ROV
         self.flotability = 11 # 12N, 1.2kg
@@ -100,9 +107,14 @@ class MyPythonNode(Node):
         self.pred_error = 0
         
         # TODO Task_yaw:
-        self.desired_yaw = self.angle_yaw_a0 + math.pi / 2 # current angle + pi/2
+        self.desired_yaw = self.angle_yaw_a0 #+ math.pi / 2 # current angle + pi/2
         # self.current_t_yaw = 0
         self.integral_error_yaw = 0
+        self.prev_yaw_err = 0
+        #FINAL TRY
+        self.yaw_at_press = 0
+        self.yaw_readings = 0
+        self.prev_time = time.time()
 
     def timer_callback(self):
         # msg = String()
@@ -120,7 +132,7 @@ class MyPythonNode(Node):
             return
         elif self.set_mode[2]:
             # send commands in correction mode
-            self.setOverrideRCIN(1500, 1500, self.Correction_depth, self.Correction_yaw, 1500, 1500)
+            self.setOverrideRCIN(1500, 1500, self.Correction_depth, self.Correction_yaw, self.Correction_surge, 1500)
         else:  # normally, never reached
             pass
 
@@ -268,6 +280,9 @@ class MyPythonNode(Node):
         if (btn_corrected_mode and not self.set_mode[2]):
             self.init_a0 = True
             self.init_p0 = True
+            self.yaw_at_press = self.yaw_readings
+            self.prev_time = time.time()
+
             # set sum errors to 0 here, ex: Sum_Errors_Vel = [0]*3
             self.set_mode[0] = False
             self.set_mode[1] = False
@@ -364,6 +379,9 @@ class MyPythonNode(Node):
         angle.angular.y = angle_wrt_startup[1]
         angle.angular.z = angle_wrt_startup[2]
 
+        #try final
+        self.yaw_readings = angle_wrt_startup[2]
+
         self.pub_angle_degre.publish(angle)
 
         # Extraction of angular velocity
@@ -384,22 +402,79 @@ class MyPythonNode(Node):
         # Send PWM commands to motors
         # yaw command to be adapted using sensor feedback
         # Proportional control
-        Kp_yaw = 1.5
-        # desired_yaw = self.desired_yaw  
-        desired_yaw, _ = self.cubic_trajectory(self.angle_yaw_a0, self.desired_yaw, self.current_t)
-        yaw_error = desired_yaw - angle_yaw
+        Kp_yaw = 0.2
+        Kd_yaw = 0.1
+        desired_yaw = self.yaw_at_press  
+        #desired_yaw, _ = self.cubic_trajectory(self.angle_yaw_a0, self.desired_yaw, self.current_t)
+        #yaw_error = desired_yaw +self.angle_yaw_a0- angle_yaw
+
+        #OLD VERSION FINAL TRY ------------------------------------------------------------------------------------------------------
+        """yaw_error = desired_yaw - self.yaw_readings
         if (yaw_error>math.pi):
             yaw_error = yaw_error - 2*math.pi
         elif(yaw_error<-math.pi):
             yaw_error = yaw_error + 2*math.pi
+
         gamma_z = -( Kp_yaw * yaw_error)
 
-        Ki_yaw = 0.1
-        sampling_time = 1/25 # corresponding to 25Hz: depth publishing frequency
-        self.integral_error = self.integral_error + yaw_error*sampling_time
-        # self.get_logger().info("this is the integral error: "+str(self.integral_error))
-        gamma_z =  gamma_z - Ki_yaw*self.integral_error # it is a minus sign because we provide negative values
-        self.get_logger().info("this is the yaw_error: "+str(yaw_error))
+        Kd_yaw = 0
+        new_error = (yaw_error - self.prev_yaw_err)/(yaw_error+1e-4)
+        
+        self.prev_yaw_err = yaw_error
+        if (new_error>math.pi):
+            new_error = new_error - 2*math.pi
+        elif(new_error<-math.pi):
+            new_error = new_error + 2*math.pi
+        
+        gamma_z = gamma_z - Kd_yaw*new_error"""
+        #End of old version final try --------------------------------------------------------------------------------------------------
+
+        #NEW VERSION FINAL TRY ++++++++++++++++++++++++++++++++++++++++++++++++++++
+        """yaw_error = desired_yaw - self.yaw_readings #error for P control
+        new_error = (yaw_error - self.prev_yaw_err)/(yaw_error+1e-4) #error for D control
+        self.prev_yaw_err = yaw_error #update needed for D error calc
+
+        if (yaw_error>math.pi):
+            yaw_error = yaw_error - 2*math.pi
+        elif(yaw_error<-math.pi):
+            yaw_error = yaw_error + 2*math.pi
+        
+        if (new_error>math.pi):
+            new_error = new_error - 2*math.pi
+        elif(new_error<-math.pi):
+            new_error = new_error + 2*math.pi
+        
+        gamma_z = -( Kp_yaw * yaw_error) - Kd_yaw*new_error"""
+
+        #new version final try +++++++++++++++++++++++++++++++++++++++++++++
+
+        #SECOND NEW FINAL TRY ////////////////////////////////////////////////////////
+        yaw_error = desired_yaw - self.yaw_readings
+        if (yaw_error>math.pi):
+            yaw_error = yaw_error - 2*math.pi
+        elif(yaw_error<-math.pi):
+            yaw_error = yaw_error + 2*math.pi
+
+        gamma_z = -( Kp_yaw * yaw_error)
+
+        current_time = time.time()
+        dt = current_time - self.prev_time
+
+        new_error = (yaw_error - self.prev_yaw_err)/(dt)
+        
+        self.prev_yaw_err = yaw_error
+        self.prev_time = current_time
+
+        gamma_z = gamma_z - Kd_yaw*new_error
+        
+        #SECOND NEW FINAL TRY ////////////////////////////////////////////////////////
+
+        # Ki_yaw = 0.1
+        # sampling_time = 1/25 # corresponding to 25Hz: depth publishing frequency
+        # self.integral_error = self.integral_error + yaw_error*sampling_time
+        # # self.get_logger().info("this is the integral error: "+str(self.integral_error))
+        # gamma_z =  gamma_z - Ki_yaw*self.integral_error # it is a minus sign because we provide negative values
+        # # self.get_logger().info("this is the yaw_error: "+str(yaw_error))
 
 
         if gamma_z < 0:
@@ -408,14 +483,15 @@ class MyPythonNode(Node):
             pwm_yaw = 1536 + 9.6 * gamma_z / 4
 
         self.Correction_yaw = pwm_yaw
-        # self.Correction_yaw = 1500
+        #self.Correction_yaw = 1500
 
 
         #publish data
         msg = Float64()
         msg_2 = Float64()
-        msg.data = self.desired_yaw
-        msg_2.data = angle_yaw
+        # msg.data = self.desired_yaw
+        msg.data = self.yaw_at_press
+        msg_2.data = self.yaw_readings
         self.publisher_desired_yaw.publish(msg)
         self.publisher_measured_yaw.publish(msg_2)
 
@@ -534,6 +610,47 @@ class MyPythonNode(Node):
     def pingerCallback(self, data):
         self.pinger_distance = data.data[0]
         self.pinger_confidence = data.data[1]
+
+        # self.get_logger().info("pinger_distance = " + str(self.pinger_distance) + 
+                            #    "with pinger_confidence = " + str(self.pinger_confidence))
+        self.stop_distance = 1.1 # 1meter
+        self.min_confidence = 0.7 # 70% enough? too less? 
+        Kp = 0.1
+        surge_error = self.pinger_distance - self.stop_distance
+        fz = (Kp * surge_error)
+        # self.get_logger().info("this is the error: "+str(depth_error))
+
+      
+        if fz<0:
+            pwm_z = 1464 + 12.3*fz/4 ## devide by 4 for each thruster
+        else:
+            pwm_z = 1536 + 9.6*fz/4
+
+
+        # update Correction_depth
+        Correction_surge = pwm_z
+        # Correction_surge = 1500
+        
+        self.Correction_surge = int(Correction_surge)
+
+
+
+        if self.pinger_confidence > self.min_confidence:
+            if self.pinger_distance <= self.stop_distance:
+                self.Correction_surge = 1500
+                # yaw control turn left 1 degree at a time
+                self.yaw_at_press = self.yaw_at_press - 0.5
+                if self.pinger_distance <= self.stop_distance-0.3:
+                    self.Correction_surge = 1460
+
+                # if (self.yaw_at_press>math.pi):
+                #     self.yaw_at_press =  - 2*math.pi
+                # elif(self.yaw_at_press<-math.pi):
+                #     self.yaw_at_press = 2*math.pi
+                    #if self.yaw_at_press > math.pi:
+                 #   self.yaw_at_press = -math.pi
+                # self.get_logger().info("Obstacle detected in 1meter! Stop and turn right")
+
 
     # self.get_logger().info("pinger_distance =" + str(self.pinger_distance))
 
